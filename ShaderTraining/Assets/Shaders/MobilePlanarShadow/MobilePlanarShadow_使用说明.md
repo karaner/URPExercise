@@ -2,7 +2,7 @@
 
 适用环境：当前工程的 Unity 2022.3、URP 14。
 
-Shader 路径：`Assets/Shaders/MobilePlanarShadow.shader`  
+Shader 路径：`Assets/Shaders/MobilePlanarShadow/MobilePlanarShadow.shader`  
 材质中的名称：`URPExercise/Mobile Planar Shadow`
 
 它会把角色网格的每个顶点沿主平行光方向投影到固定世界高度的水平面，再绘制为半透明阴影。它不是 ShadowMap，不依赖 URP 实时阴影开关，适合平地、MOBA 和移动端角色假阴影。
@@ -37,8 +37,6 @@ Shader 路径：`Assets/Shaders/MobilePlanarShadow.shader`
 | Shadow Length | `1.0` | 投影长度倍率，0 表示不沿光线拉长 |
 | Ground Height | `0.0` | 地面的世界空间 Y 高度 |
 | Plane Offset | `0.01` | 将阴影稍微抬离地面，避免深度冲突 |
-| Fade Height | `2.0` | 参与高度淡出的角色高度 |
-| Height Fade Strength | `0.35` | 高处投影的衰减程度，0 表示关闭淡出 |
 | Stencil Ref | `1` | 防止同一角色的三角形重叠处重复变暗 |
 
 建议用以下操作验证效果：
@@ -62,6 +60,7 @@ Shader 路径：`Assets/Shaders/MobilePlanarShadow.shader`
 
 - **看不到阴影**：检查 Opacity、相机视角、Ground Height 是否等于地面高度，以及 Directional Light 是否向下照射。
 - **阴影闪烁或出现条纹**：把 Plane Offset 从 `0.01` 增至 `0.02～0.03`。
+- **阴影内部出现硬分界或局部更暗**：旧版的高度淡出会随源三角形高度改变透明度，与 Stencil 的“只保留首个片元”组合后会产生分块。当前版本已改为恒定透明度；另外检查原模型是否仍投射 URP 实时阴影，避免真、假阴影重叠。
 - **阴影过长**：减小 Shadow Length，或让主光更靠近头顶；代码已限制接近地平线时的投影长度。
 - **多个角色的阴影相交后消失**：给不同角色分配不同的 Stencil Ref，例如 `1、2、3`；同一角色仍共用一个值。
 - **角色上下台阶后阴影悬空或穿地**：这是固定世界 Y 平面投影，需要按角色脚下地面高度更新 Ground Height。斜坡和不规则地面应改用 Decal、圆形 Blob Shadow 或实时阴影。
@@ -76,4 +75,4 @@ P' = P - L * ((P.y - GroundHeight) / L.y)
 P'.y = GroundHeight + PlaneOffset
 ```
 
-其中 `P` 是顶点世界坐标，`L` 是朝向主光的单位方向。Shader 只修改 XZ 偏移并把 Y 固定到地面；高度淡出和雾衰减在片元阶段调整透明度。Stencil 保证同一角色重叠区域只混合一次。
+其中 `P` 是顶点世界坐标，`L` 是朝向主光的单位方向。Shader 只修改 XZ 偏移并把 Y 固定到地面。片元透明度不再依赖源顶点高度，只保留与角色自身无关的雾衰减；Stencil 保证同一角色重叠区域只混合一次，从而避免重叠表面形成硬色块。

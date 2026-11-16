@@ -7,8 +7,6 @@ Shader "URPExercise/Mobile Planar Shadow"
         _ShadowLength ("Shadow Length", Range(0.0, 3.0)) = 1.0
         _GroundHeight ("Ground Height (World Y)", Float) = 0.0
         _PlaneOffset ("Plane Offset", Range(0.0, 0.05)) = 0.01
-        _FadeHeight ("Fade Height", Float) = 2.0
-        _FadeStrength ("Height Fade Strength", Range(0.0, 1.0)) = 0.35
         [IntRange] _StencilRef ("Stencil Ref", Range(1, 255)) = 1
     }
 
@@ -58,8 +56,6 @@ Shader "URPExercise/Mobile Planar Shadow"
                 float _ShadowLength;
                 float _GroundHeight;
                 float _PlaneOffset;
-                float _FadeHeight;
-                float _FadeStrength;
                 float _StencilRef;
             CBUFFER_END
 
@@ -71,8 +67,7 @@ Shader "URPExercise/Mobile Planar Shadow"
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
-                half heightFade : TEXCOORD0;
-                half fogFactor : TEXCOORD1;
+                half fogFactor : TEXCOORD0;
             };
 
             Varyings Vert(Attributes input)
@@ -103,15 +98,16 @@ Shader "URPExercise/Mobile Planar Shadow"
 
                 output.positionCS = TransformWorldToHClip(projectedPositionWS);
                 output.fogFactor = ComputeFogFactor(output.positionCS.z);
-
-                float height01 = saturate(heightAboveGround / max(_FadeHeight, 0.001));
-                output.heightFade = 1.0h - height01 * _FadeStrength;
                 return output;
             }
 
             half4 Frag(Varyings input) : SV_Target
             {
-                half alpha = _ShadowColor.a * _Opacity * input.heightFade;
+                // Keep alpha independent of the source triangle. Otherwise,
+                // overlapping projected surfaces with different source heights
+                // can leave hard opacity bands when the stencil accepts only
+                // the first rasterized fragment.
+                half alpha = _ShadowColor.a * _Opacity;
                 alpha *= 1.0h - input.fogFactor;
                 return half4(_ShadowColor.rgb, alpha);
             }
