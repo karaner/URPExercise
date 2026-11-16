@@ -31,10 +31,17 @@ Material:
     - _FadeStartDistance: 0.2
     - _FadeStrength: 0.35
     - _GroundHeight: 0
+    - _LightRange: 1
+    - _LightSpotInnerCos: 0.9
+    - _LightSpotOuterCos: 0.8
+    - _LightType: -1
     - _Opacity: 0.45
     - _PlaneOffset: 0.01
     - _ShadowLength: 1
     - _StencilRef: 1
     m_Colors:
-    - _ShadowColor: {r: 0.025, g: 0.03, b: 0.044999972, a: 1}
+    - _LightDirectionWS: {r: 0, g: 1, b: 0, a: 0}
+    - _LightPositionWS: {r: 0, g: 0, b: 0, a: 1}
+    - _LightSpotDirectionWS: {r: 0, g: -1, b: 0, a: 0}
+    - _ShadowColor: {r: 0.023529412, g: 0.03137255, b: 0.043137256, a: 1}
   m_BuildTextureStacks: []

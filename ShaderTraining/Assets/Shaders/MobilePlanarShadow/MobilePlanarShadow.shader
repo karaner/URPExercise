@@ -12,6 +12,17 @@ Shader "URPExercise/Mobile Planar Shadow"
         [Min(0.0)] _FadeEndDistance ("Fade End Distance (0 = Off)", Float) = 2.0
         _FadeEndOpacity ("Fade End Opacity", Range(0.0, 1.0)) = 0.3
         [IntRange] _StencilRef ("Stencil Ref", Range(1, 255)) = 1
+
+        // Per-light values are supplied by PlanarShadowLightSource.cs through
+        // a MaterialPropertyBlock. The default -1 keeps automatic URP main
+        // light behavior for existing materials and single-light renderers.
+        [HideInInspector] _LightType ("Light Type", Float) = -1.0
+        [HideInInspector] _LightPositionWS ("Light Position WS", Vector) = (0, 0, 0, 1)
+        [HideInInspector] _LightDirectionWS ("Light Direction WS", Vector) = (0, 1, 0, 0)
+        [HideInInspector] _LightSpotDirectionWS ("Spot Direction WS", Vector) = (0, -1, 0, 0)
+        [HideInInspector] _LightRange ("Light Range", Float) = 1.0
+        [HideInInspector] _LightSpotInnerCos ("Spot Inner Cos", Float) = 0.9
+        [HideInInspector] _LightSpotOuterCos ("Spot Outer Cos", Float) = 0.8
     }
 
     SubShader
@@ -34,10 +45,9 @@ Shader "URPExercise/Mobile Planar Shadow"
             Cull Off
             Offset -1, -1
 
-            // Prevent overlapping triangles in the same character from
-            // blending repeatedly and creating a patchy, over-dark shadow.
-            // Use one shared value per character; use different values for
-            // different characters whose shadows can overlap.
+            // Parts of the same character under the same light share one ref.
+            // Use a different ref for each character/light pair whose shadows
+            // can overlap, so separate lights can still darken each other.
             Stencil
             {
                 Ref [_StencilRef]
@@ -64,6 +74,13 @@ Shader "URPExercise/Mobile Planar Shadow"
                 float _FadeEndDistance;
                 float _FadeEndOpacity;
                 float _StencilRef;
+                float _LightType;
+                float4 _LightPositionWS;
+                float4 _LightDirectionWS;
+                float4 _LightSpotDirectionWS;
+                float _LightRange;
+                float _LightSpotInnerCos;
+                float _LightSpotOuterCos;
             CBUFFER_END
 
             struct Attributes
@@ -79,24 +96,93 @@ Shader "URPExercise/Mobile Planar Shadow"
                 float2 footPositionXZ : TEXCOORD2;
             };
 
+            float3 PlanarNormalize(float3 value, float3 fallback)
+            {
+                float lengthSq = dot(value, value);
+                return lengthSq > 0.000001 ? value * rsqrt(lengthSq) : fallback;
+            }
+
+            float3 GetProjectionLightDirection(float3 positionWS)
+            {
+                // -1: automatic URP main directional light.
+                if (_LightType < -0.5)
+                {
+                    return PlanarNormalize(
+                        GetMainLight().direction,
+                        float3(-0.4, 0.8, 0.3)
+                    );
+                }
+
+                // 0: explicitly assigned directional light. Its direction
+                // points from the receiver toward the light.
+                if (_LightType < 0.5)
+                {
+                    return PlanarNormalize(
+                        _LightDirectionWS.xyz,
+                        float3(-0.4, 0.8, 0.3)
+                    );
+                }
+
+                // 1/2: point or spot light. Unlike a directional light, the
+                // direction toward a local light varies for every vertex.
+                return PlanarNormalize(
+                    _LightPositionWS.xyz - positionWS,
+                    float3(0.0, 1.0, 0.0)
+                );
+            }
+
+            half GetReceiverLightAttenuation(float3 receiverPositionWS)
+            {
+                // Automatic and explicit directional lights have no local
+                // range or spot-cone attenuation.
+                if (_LightType < 0.5)
+                {
+                    return 1.0h;
+                }
+
+                float3 lightToReceiver = receiverPositionWS - _LightPositionWS.xyz;
+                float distanceToLight = length(lightToReceiver);
+                float lightRange = max(_LightRange, 0.001);
+
+                // Fade over the last 20 percent of the local light's range.
+                half attenuation = 1.0h - smoothstep(
+                    lightRange * 0.8,
+                    lightRange,
+                    distanceToLight
+                );
+
+                if (_LightType > 1.5)
+                {
+                    float3 receiverDirection = PlanarNormalize(
+                        lightToReceiver,
+                        float3(0.0, -1.0, 0.0)
+                    );
+                    float3 spotDirection = PlanarNormalize(
+                        _LightSpotDirectionWS.xyz,
+                        float3(0.0, -1.0, 0.0)
+                    );
+                    float cosAngle = dot(receiverDirection, spotDirection);
+                    float outerCos = _LightSpotOuterCos;
+                    float innerCos = max(_LightSpotInnerCos, outerCos + 0.0001);
+
+                    attenuation *= smoothstep(outerCos, innerCos, cosAngle);
+                }
+
+                return attenuation;
+            }
+
             Varyings Vert(Attributes input)
             {
                 Varyings output;
 
                 float3 positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 float heightAboveGround = max(positionWS.y - _GroundHeight, 0.0);
+                float3 lightDirectionWS = GetProjectionLightDirection(positionWS);
 
-                // URP's main directional light points from the surface toward
-                // the light. Project away from it along the light ray:
+                // For every light type, L points from the vertex toward the
+                // light, so the same projection equation can be reused:
                 // P' = P - L * ((P.y - planeY) / L.y).
-                float3 lightDirectionWS = GetMainLight().direction;
-                float directionLengthSq = dot(lightDirectionWS, lightDirectionWS);
-                lightDirectionWS = directionLengthSq > 0.0001
-                    ? lightDirectionWS * rsqrt(directionLengthSq)
-                    : normalize(float3(-0.4, 0.8, 0.3));
-
-                // Avoid a near-zero division when the light approaches the
-                // horizon. Keep the directional light shining downward.
+                // Keep local lights above the mesh and the ground plane.
                 float verticalDirection = max(lightDirectionWS.y, 0.1);
                 float projectionDistance = heightAboveGround / verticalDirection;
 
@@ -109,8 +195,6 @@ Shader "URPExercise/Mobile Planar Shadow"
                 output.fogFactor = ComputeFogFactor(output.positionCS.z);
 
                 // Use the renderer pivot's XZ as the character's foot center.
-                // Both coordinates describe the ground plane, so overlapping
-                // source triangles produce the same fade at the same pixel.
                 float3 footPositionWS = TransformObjectToWorld(float3(0.0, 0.0, 0.0));
                 output.shadowPositionXZ = projectedPositionWS.xz;
                 output.footPositionXZ = footPositionWS.xz;
@@ -131,9 +215,6 @@ Shader "URPExercise/Mobile Planar Shadow"
                         _FadeStartDistance + 0.001
                     );
 
-                    // Full opacity before Fade Start, then smoothly approach
-                    // Fade End Opacity. Beyond Fade End, smoothstep stays at 1,
-                    // so the shadow keeps the requested residual opacity.
                     half fadeAmount = smoothstep(
                         _FadeStartDistance,
                         fadeEnd,
@@ -142,10 +223,20 @@ Shader "URPExercise/Mobile Planar Shadow"
                     distanceFade = lerp(1.0h, _FadeEndOpacity, fadeAmount);
                 }
 
-                // Alpha depends only on the projected ground position, not on
-                // the source triangle, so stencil-tested overlaps stay smooth.
+                float3 receiverPositionWS = float3(
+                    input.shadowPositionXZ.x,
+                    _GroundHeight + _PlaneOffset,
+                    input.shadowPositionXZ.y
+                );
+                half lightAttenuation = GetReceiverLightAttenuation(receiverPositionWS);
+
+                // Distance, range and spot attenuation all depend only on the
+                // projected ground position, not on the source triangle.
                 half alpha = _ShadowColor.a * _Opacity * distanceFade;
-                alpha *= 1.0h - input.fogFactor;
+                alpha *= lightAttenuation * (1.0h - input.fogFactor);
+
+                // Fully transparent fragments should not reserve stencil.
+                clip(alpha - 0.0001h);
                 return half4(_ShadowColor.rgb, alpha);
             }
             ENDHLSL
