@@ -25,7 +25,10 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
+    - _FadeEndDistance: 2
+    - _FadeEndOpacity: 0.3
     - _FadeHeight: 2
+    - _FadeStartDistance: 0.2
     - _FadeStrength: 0.35
     - _GroundHeight: 0
     - _Opacity: 0.45

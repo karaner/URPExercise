@@ -7,6 +7,10 @@ Shader "URPExercise/Mobile Planar Shadow"
         _ShadowLength ("Shadow Length", Range(0.0, 3.0)) = 1.0
         _GroundHeight ("Ground Height (World Y)", Float) = 0.0
         _PlaneOffset ("Plane Offset", Range(0.0, 0.05)) = 0.01
+        [Header(Distance Fade)]
+        [Min(0.0)] _FadeStartDistance ("Fade Start Distance", Float) = 0.2
+        [Min(0.0)] _FadeEndDistance ("Fade End Distance (0 = Off)", Float) = 2.0
+        _FadeEndOpacity ("Fade End Opacity", Range(0.0, 1.0)) = 0.3
         [IntRange] _StencilRef ("Stencil Ref", Range(1, 255)) = 1
     }
 
@@ -56,6 +60,9 @@ Shader "URPExercise/Mobile Planar Shadow"
                 float _ShadowLength;
                 float _GroundHeight;
                 float _PlaneOffset;
+                float _FadeStartDistance;
+                float _FadeEndDistance;
+                float _FadeEndOpacity;
                 float _StencilRef;
             CBUFFER_END
 
@@ -68,6 +75,8 @@ Shader "URPExercise/Mobile Planar Shadow"
             {
                 float4 positionCS : SV_POSITION;
                 half fogFactor : TEXCOORD0;
+                float2 shadowPositionXZ : TEXCOORD1;
+                float2 footPositionXZ : TEXCOORD2;
             };
 
             Varyings Vert(Attributes input)
@@ -98,16 +107,44 @@ Shader "URPExercise/Mobile Planar Shadow"
 
                 output.positionCS = TransformWorldToHClip(projectedPositionWS);
                 output.fogFactor = ComputeFogFactor(output.positionCS.z);
+
+                // Use the renderer pivot's XZ as the character's foot center.
+                // Both coordinates describe the ground plane, so overlapping
+                // source triangles produce the same fade at the same pixel.
+                float3 footPositionWS = TransformObjectToWorld(float3(0.0, 0.0, 0.0));
+                output.shadowPositionXZ = projectedPositionWS.xz;
+                output.footPositionXZ = footPositionWS.xz;
                 return output;
             }
 
             half4 Frag(Varyings input) : SV_Target
             {
-                // Keep alpha independent of the source triangle. Otherwise,
-                // overlapping projected surfaces with different source heights
-                // can leave hard opacity bands when the stencil accepts only
-                // the first rasterized fragment.
-                half alpha = _ShadowColor.a * _Opacity;
+                half distanceFade = 1.0h;
+                if (_FadeEndDistance > 0.0001)
+                {
+                    float distanceToFoot = distance(
+                        input.shadowPositionXZ,
+                        input.footPositionXZ
+                    );
+                    float fadeEnd = max(
+                        _FadeEndDistance,
+                        _FadeStartDistance + 0.001
+                    );
+
+                    // Full opacity before Fade Start, then smoothly approach
+                    // Fade End Opacity. Beyond Fade End, smoothstep stays at 1,
+                    // so the shadow keeps the requested residual opacity.
+                    half fadeAmount = smoothstep(
+                        _FadeStartDistance,
+                        fadeEnd,
+                        distanceToFoot
+                    );
+                    distanceFade = lerp(1.0h, _FadeEndOpacity, fadeAmount);
+                }
+
+                // Alpha depends only on the projected ground position, not on
+                // the source triangle, so stencil-tested overlaps stay smooth.
+                half alpha = _ShadowColor.a * _Opacity * distanceFade;
                 alpha *= 1.0h - input.fogFactor;
                 return half4(_ShadowColor.rgb, alpha);
             }
