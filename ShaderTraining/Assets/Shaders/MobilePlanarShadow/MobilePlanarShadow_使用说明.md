@@ -66,10 +66,10 @@ Shader 路径：`Assets/Shaders/MobilePlanarShadow/MobilePlanarShadow.shader`
 
 1. 保留前面的 `Capsule_Shadow`，材质 `M_PlanarShadow` 的 Stencil Ref 设为 `1`，不添加绑定脚本即可继续使用主平行光。
 2. 创建 **Light > Point Light**：
-   - Position：`(2, 3, 1)`
-   - Range：`10`
+   - Position：`(1, 5, 1)`
+   - Range：`8`
    - Intensity：`1`
-3. 复制 `M_PlanarShadow`，命名为 `M_PlanarShadow_Point`，将它的 **Stencil Ref 改为 `2`**。
+3. 复制 `M_PlanarShadow`，命名为 `M_PlanarShadow_Point`，将它的 **Stencil Ref 改为 `2`**。针对 2 米高的测试胶囊，建议同时设置：Shadow Length `0.7`、Opacity `0.25`、Fade Start Distance `0.2`、Fade End Distance `1.5`、Fade End Opacity `0.2`。
 4. 从原 Capsule 再复制一个 Renderer，命名为 `Capsule_Shadow_Point`，Transform 与原 Capsule 一致，材质使用 `M_PlanarShadow_Point`，Cast Shadows 设为 `Off`。
 5. 给 `Capsule_Shadow_Point` 添加 **Planar Shadow Light Source** 组件：
    - Source Light：拖入刚创建的 Point Light。
@@ -89,6 +89,8 @@ Shader 路径：`Assets/Shaders/MobilePlanarShadow/MobilePlanarShadow.shader`
 - 不同 Stencil Ref 请通过复制材质设置；`PlanarShadowLightSource` 只传光源数据，不修改材质 Render State。
 
 点光和聚光应位于被投影网格及地面之上。光源低于角色或穿过角色高度时，普通水平面投影没有有效的完整交点，需要限制灯光位置或改用实时阴影。
+
+点光投影长度对灯高非常敏感。设灯高为 `H`、顶点高度为 `y`、光源到角色中轴线的水平距离为 `D`，则顶点的水平投影偏移约为 `y * D / (H - y) * ShadowLength`。例如旧测试位置 `(2, 3, 1)` 对 2 米高胶囊顶部会产生约 `4.47` 米偏移，因此视觉上非常大。优先提高灯高并减少水平偏移，再用 Shadow Length 做美术微调；Range 只控制衰减，不会缩小投影几何。
 
 ## 四、放到带骨骼动画的角色上
 
