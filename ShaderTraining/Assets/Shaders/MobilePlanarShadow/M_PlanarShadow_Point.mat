@@ -38,7 +38,7 @@ Material:
     - _Opacity: 0.25
     - _PlaneOffset: 0.01
     - _ShadowLength: 0.7
-    - _StencilRef: 2
+    - _StencilRef: 3
     m_Colors:
     - _LightDirectionWS: {r: 0, g: 1, b: 0, a: 0}
     - _LightPositionWS: {r: 0, g: 0, b: 0, a: 1}
